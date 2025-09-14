@@ -1,0 +1,26 @@
+[
+    {
+        "ssh_config": {
+            "host": "[HOST]",
+            "name": "[HOST]"
+        },
+        "vms": [
+            {
+                "remote_disk_image_path": "[PATH_TO_IMAGE]",
+                "cpu_count": 1,
+                "memory": "2G",
+                "virtfs_path": "[PATH_TO_VIRTFS]",
+                "interfaces": [
+                    {
+                        "name": "iface1",
+                        "type": "tap",
+                        "master": "br0",
+                        "mac_address": "06:01:02:03:04:05",
+                        "vhost": true
+                    }
+                ],
+                "display_mode": "terminal"
+            }
+        ]
+    }
+]
