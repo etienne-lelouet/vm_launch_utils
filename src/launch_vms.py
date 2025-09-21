@@ -14,6 +14,30 @@ from async_fs_utils import copy_to_remote
 
 import argparse
 
+async def ensure_file_image(local_path: str, remote_path: str, connectionWrapper: ConnectionWrapper, overwrite_image: bool = False):
+    if remote_path == "":
+        print("Error: 'remote_disk_image_path' is required in the JSON file.")
+        sys.exit(1)
+
+    file_exists = await check_file_exists(remote_path, connectionWrapper)
+
+    if file_exists:
+        if not await validate_image_use(remote_path, connectionWrapper):
+            print(
+                f"Error: Disk image '{remote_path}' is currently in use by another qemu process")
+            sys.exit(1)
+
+    if overwrite_image or not file_exists:
+        if os.path.exists(local_path):
+            print(
+                f"Copying existing disk image '{local_path}' to remote image '{remote_path}'")
+            await copy_to_remote(local_path, remote_path, connectionWrapper)
+        else:
+            print(
+                f"Error: Local disk image '{local_path}' does not exist to overwrite remote image.")
+            sys.exit(1)
+
+
 
 async def launch_single_vm(vm_configuration: dict, connectionWrapper: ConnectionWrapper, overwrite_image: bool = True, kill_running_vms=True):
     """
@@ -95,36 +119,23 @@ async def launch_single_vm(vm_configuration: dict, connectionWrapper: Connection
                 print(f"Error: Unknown display mode '{value}'.")
                 sys.exit(1)
 
-    if not vm_configuration.get("remote_disk_image_path"):
+    drive_number = 0
+    if vm_configuration.get("remote_disk_image_path", "") == "":
         print("Error: 'remote_disk_image_path' is required in the JSON file.")
         sys.exit(1)
 
-    args.append("-hda")
-    args.append(str(vm_configuration["remote_disk_image_path"]))
+    await ensure_file_image(vm_configuration.get("local_disk_image_path", ""), vm_configuration["remote_disk_image_path"], connectionWrapper, overwrite_image)
+    args.append("-drive")
+    args.append(f"file={vm_configuration['remote_disk_image_path']},format=qcow2,if=virtio,index={drive_number},media=disk")
+    drive_number += 1
 
-    if file_exists:
-        if overwrite_image:
-            if os.path.exists(vm_configuration.get("local_disk_image_path", "")):
-                print(
-                    f"Warning: Disk image '{vm_configuration['remote_disk_image_path']}' already exists. It will be overwritten.")
-                await copy_to_remote(f"{vm_configuration['local_disk_image_path']}",
-                                     f"{vm_configuration['remote_disk_image_path']}", connectionWrapper)
-            else:
-                print(
-                    f"Error: Local disk image '{vm_configuration.get('local_disk_image_path', '')}' does not exist. Cannot overwrite remote image.")
-                sys.exit(1)
-        else:
-            print(
-                f"Info: Disk image '{vm_configuration['remote_disk_image_path']}' already exists. It will not be overwritten.")
-
-    elif not file_exists:
-        if not vm_configuration.get("local_disk_image_path"):
-            print("Error: 'local_disk_image_path' is required in the JSON file when the remote disk image does not exist.")
-            sys.exit(1)
-        print(
-            f"Copying disk image from '{vm_configuration['local_disk_image_path']}' to '{vm_configuration['remote_disk_image_path']}'")
-        await copy_to_remote(f"{vm_configuration['local_disk_image_path']}",
-                             f"{vm_configuration['remote_disk_image_path']}", connectionWrapper)
+    for value in vm_configuration.get("additional_disk_images", []):
+        local_path = value.get("local_disk_image_path", "")
+        remote_path = value.get("remote_disk_image_path", "")
+        await ensure_file_image(local_path, remote_path, connectionWrapper, overwrite_image)
+        args.append("-drive")
+        args.append(f"file={remote_path},format=qcow2,if=virtio,index={drive_number},media=disk")
+        drive_number += 1
 
     print(f"Launching VM with command: {binary} {' '.join(args)}")
     if (display_mode == "background" or display_mode == "graphic"):
